@@ -1,0 +1,35 @@
+name: Ochtendbriefing
+
+on:
+  schedule:
+    # GitHub cron draait in UTC. 08:00 Europe/Amsterdam is:
+    - cron: "0 6 * * *"   # zomertijd (CEST, UTC+2) -> 08:00 lokaal
+    - cron: "0 7 * * *"   # wintertijd (CET, UTC+1) -> 08:00 lokaal
+    # briefing.py verstuurt alleen als het lokaal 08:xx is, dus precies 1x per dag.
+  workflow_dispatch: {}   # handmatig draaien -> forceert direct versturen
+
+permissions:
+  contents: write         # nodig voor de keepalive-commit
+
+jobs:
+  briefing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verstuur ochtendbriefing
+        env:
+          CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
+          CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          # Handmatige run (workflow_dispatch) forceert versturen, ongeacht het uur:
+          FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          PYTHONIOENCODING: "utf-8"
+        run: python briefing.py
+
+      - name: Keepalive (voorkomt uitschakelen na 60 dagen inactiviteit)
+        if: github.event_name == 'schedule'
+        uses: gautamkrishnar/keepalive-workflow@v2
