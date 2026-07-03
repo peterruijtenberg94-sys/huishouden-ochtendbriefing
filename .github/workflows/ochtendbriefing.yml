@@ -8,28 +8,21 @@ on:
     # briefing.py verstuurt alleen als het lokaal 08:xx is, dus precies 1x per dag.
   workflow_dispatch: {}   # handmatig draaien -> forceert direct versturen
 
-permissions:
-  contents: write         # nodig voor de keepalive-commit
-
+# Bewust GEEN externe actions (geen actions/checkout of setup-python): dit account
+# kan externe action-repos niet benaderen. We halen het script met curl op van de
+# raw-URL en draaien het met de voorgeïnstalleerde python3 van de runner.
 jobs:
   briefing:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - name: Verstuur ochtendbriefing
         env:
           CALLMEBOT_PHONE: ${{ secrets.CALLMEBOT_PHONE }}
           CALLMEBOT_APIKEY: ${{ secrets.CALLMEBOT_APIKEY }}
+          HUISHOUDEN_CONFIG: ${{ secrets.HUISHOUDEN_CONFIG }}
           # Handmatige run (workflow_dispatch) forceert versturen, ongeacht het uur:
           FORCE_SEND: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
           PYTHONIOENCODING: "utf-8"
-        run: python briefing.py
-
-      - name: Keepalive (voorkomt uitschakelen na 60 dagen inactiviteit)
-        if: github.event_name == 'schedule'
-        uses: gautamkrishnar/keepalive-workflow@v2
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/briefing.py" -o briefing.py
+          python3 briefing.py
