@@ -56,7 +56,9 @@ MOOS_REF_MONDAY = date(2026, 6, 29)
 #    "verjaardagen": [["Naam", 5, 24, "traktatie"], ...]}
 # Zonder config: geen afvaldata en geen verjaardagen (rest werkt gewoon).
 def _load_config():
-    raw = os.environ.get("HUISHOUDEN_CONFIG", "").strip()
+    # lstrip("﻿") verwijdert een eventueel UTF-8 BOM dat sommige tools
+    # aan een secret-waarde plakken; anders faalt json.loads op teken 0.
+    raw = os.environ.get("HUISHOUDEN_CONFIG", "").lstrip("﻿").strip()
     if not raw:
         return {"postcode": None, "huisnr": None, "verjaardagen": []}
     try:
