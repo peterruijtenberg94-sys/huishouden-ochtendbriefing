@@ -20,7 +20,7 @@ event = os.environ.get("GITHUB_EVENT_NAME", "")
 
 # Alleen op de 1e van de maand (of bij een handmatige run) committen — ruim binnen
 # de 60-dagen-grens, zonder dagelijkse ruis in de historie.
-if event != "workflow_dispatch" and datetime.datetime.utcnow().day != 1:
+if event != "workflow_dispatch" and datetime.datetime.now(datetime.timezone.utc).day != 1:
     print("[keepalive] geen heartbeat vandaag.")
     raise SystemExit(0)
 
@@ -45,7 +45,7 @@ try:
 except Exception:
     pass
 
-now = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+now = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 content = base64.b64encode(f"laatste heartbeat: {now}\n".encode()).decode()
 body = {"message": "keepalive heartbeat", "content": content}
 if sha:
