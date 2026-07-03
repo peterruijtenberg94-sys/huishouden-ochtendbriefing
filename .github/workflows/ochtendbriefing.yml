@@ -9,8 +9,11 @@ on:
   workflow_dispatch: {}   # handmatig draaien -> forceert direct versturen
 
 # Bewust GEEN externe actions (geen actions/checkout of setup-python): dit account
-# kan externe action-repos niet benaderen. We halen het script met curl op van de
-# raw-URL en draaien het met de voorgeïnstalleerde python3 van de runner.
+# kan externe action-repos niet benaderen. We halen de scripts met curl op van de
+# raw-URL en draaien ze met de voorgeïnstalleerde python3 van de runner.
+permissions:
+  contents: write   # nodig voor de keepalive-heartbeat
+
 jobs:
   briefing:
     runs-on: ubuntu-latest
@@ -26,3 +29,10 @@ jobs:
         run: |
           curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/briefing.py" -o briefing.py
           python3 briefing.py
+
+      - name: Keepalive (voorkomt uitschakelen na 60 dagen inactiviteit)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          curl -fsSL "https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}/keepalive.py" -o keepalive.py
+          python3 keepalive.py
