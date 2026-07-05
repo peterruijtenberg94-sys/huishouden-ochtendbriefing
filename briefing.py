@@ -18,6 +18,7 @@ Optioneel:
 import os
 import sys
 import json
+import base64
 import urllib.parse
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
@@ -239,18 +240,68 @@ def verstuur(bericht: str, phone: str, apikey: str) -> bool:
         return False
 
 
+# --- Dagstatus in de repo, zodat er bij meerdere cron-runs per dag maar 1x wordt ---
+# --- verstuurd (GitHub cron kan uren vertragen, dus draaien we vaker). De commit ---
+# --- dient meteen als keepalive-activiteit voor de repo.                          ---
+STATE_PATH = "data/last-sent.txt"
+
+
+def _state_api(method, token, repo, data=None):
+    url = f"https://api.github.com/repos/{repo}/contents/{STATE_PATH}"
+    req = urllib.request.Request(url, data=data, method=method, headers={
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "huishouden-briefing",
+    })
+    return urllib.request.urlopen(req, timeout=20)
+
+
+def reeds_verstuurd(vandaag, token, repo):
+    """(al_verstuurd_vandaag: bool, sha: str|None). Zonder token/repo: (False, None)."""
+    if not token or not repo:
+        return False, None
+    try:
+        d = json.load(_state_api("GET", token, repo))
+        inhoud = base64.b64decode(d.get("content", "")).decode().strip()
+        return (inhoud == vandaag.isoformat()), d.get("sha")
+    except Exception:
+        return False, None  # bestaat nog niet -> nog niet verstuurd
+
+
+def markeer_verstuurd(vandaag, token, repo, sha):
+    if not token or not repo:
+        return
+    inhoud = base64.b64encode((vandaag.isoformat() + "\n").encode()).decode()
+    body = {"message": f"briefing verstuurd {vandaag.isoformat()}", "content": inhoud}
+    if sha:
+        body["sha"] = sha
+    try:
+        _state_api("PUT", token, repo, json.dumps(body).encode())
+        print(f"[info] gemarkeerd als verstuurd ({vandaag.isoformat()}).")
+    except Exception as e:
+        print(f"[waarschuwing] markeren mislukt (niet kritiek): {e}", file=sys.stderr)
+
+
 def main() -> int:
     nu = now_amsterdam()
     vandaag = nu.date()
 
     force = os.environ.get("FORCE_SEND") == "1"
     dry = os.environ.get("DRY_RUN") == "1"
+    token = os.environ.get("GH_TOKEN", "").strip()
+    repo = os.environ.get("GITHUB_REPOSITORY", "").strip()
+    sha = None
 
-    # Alleen om 08:00 lokale tijd versturen (de cron draait op 06:00 én 07:00 UTC
-    # om zowel zomer- als wintertijd te dekken; hier filteren we tot precies 08:xx).
-    if not force and not dry and nu.hour != 8:
-        print(f"[skip] lokaal uur is {nu.hour}, niet 8 — niets verstuurd.")
-        return 0
+    if not force and not dry:
+        # GitHub cron kan flink vertragen; daarom 'vanaf 08:00' i.p.v. 'precies 08:xx',
+        # met een de-dup zodat er hooguit 1x per dag wordt verstuurd.
+        if nu.hour < 8:
+            print(f"[skip] lokaal uur is {nu.hour} (< 8) - nog te vroeg.")
+            return 0
+        al, sha = reeds_verstuurd(vandaag, token, repo)
+        if al:
+            print("[skip] briefing is vandaag al verstuurd.")
+            return 0
 
     bericht = build_briefing(vandaag)
 
@@ -272,7 +323,14 @@ def main() -> int:
         print("[fout] CALLMEBOT_PHONE / CALLMEBOT_APIKEY ontbreken in de environment.", file=sys.stderr)
         return 1
 
-    return 0 if verstuur(bericht, phone, apikey) else 1
+    if not verstuur(bericht, phone, apikey):
+        return 1
+
+    # Alleen na succesvol versturen markeren (handmatige FORCE-run niet, die mag de
+    # dagstatus niet beïnvloeden).
+    if not force:
+        markeer_verstuurd(vandaag, token, repo, sha)
+    return 0
 
 
 if __name__ == "__main__":
